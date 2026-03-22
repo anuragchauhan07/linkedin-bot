@@ -31,70 +31,82 @@ function replyToAllComments(replyText) {
     }
 
     function randomDelay() {
-      return Math.floor(Math.random() * 10000) + 5000;
+      return Math.floor(Math.random() * 1000) + 3000; // 1-2 seconds
+    } 
+
+    // Scroll to load all comments first
+    async function loadAllComments() {
+      let unchanged = 0, lastHeight = 0;
+      while (unchanged < 4) {
+        // Click "Load more comments" buttons
+        document.querySelectorAll("button").forEach(b => {
+          if (/load more comments/i.test(b.innerText)) b.click();
+        });
+        window.scrollBy(0, 1500);
+        await sleep(1200);
+        const h = document.body.scrollHeight;
+        if (h === lastHeight) unchanged++; else { unchanged = 0; lastHeight = h; }
+      }
     }
 
-    // Snapshot all "Reply" trigger buttons BEFORE we start.
-    // Once a reply box opens, a new blue "Reply" submit button appears inside it —
-    // we snapshot now so we only loop over the comment reply triggers, not the submit buttons.
-    const replyTriggers = [...document.querySelectorAll("button")].filter(
-      b => b.innerText.trim().toLowerCase() === "reply"
+    await loadAllComments();
+
+    // KEY FIX: Only select top-level comment articles.
+    // Top-level = has class "comments-comment-entity" but NOT "comments-comment-entity--reply"
+    const topLevelArticles = document.querySelectorAll(
+      "article.comments-comment-entity:not(.comments-comment-entity--reply)"
     );
 
-    if (replyTriggers.length === 0) {
-      return resolve("No comments found. Make sure you're on a LinkedIn post.");
+    if (topLevelArticles.length === 0) {
+      return resolve("No top-level comments found. Make sure you're on a LinkedIn post.");
     }
 
     let count = 0;
 
-    for (const replyBtn of replyTriggers) {
-      // Scroll to and click the "Reply" link under the comment
-      replyBtn.scrollIntoView({ behavior: "smooth", block: "center" });
-      await sleep(800);
-      replyBtn.click();
-      await sleep(1500); // wait for the reply box to fully open
+    for (const article of topLevelArticles) {
+      // Find the Reply button inside this specific top-level comment article
+      const replyBtn = [...article.querySelectorAll("button")].find(
+        b => b.innerText.trim().toLowerCase() === "reply"
+      );
+      if (!replyBtn) continue;
 
-      // Find the editor that just appeared
-      let editor = null;
-      const container = replyBtn.closest("article, li, div.comments-comment-item");
-      if (container) {
-        editor = container.querySelector("div.ql-editor[contenteditable='true']");
-      }
+      replyBtn.scrollIntoView({ behavior: "smooth", block: "center" });
+      await sleep(600);
+      replyBtn.click();
+      await sleep(1500);
+
+      // Find the editor that appeared inside this article
+      let editor = article.querySelector("div.ql-editor[contenteditable='true']");
       if (!editor) {
+        // Fallback: last editor on page
         const all = document.querySelectorAll("div.ql-editor[contenteditable='true']");
         editor = all[all.length - 1];
       }
       if (!editor) continue;
 
-      // Type the reply text
       editor.focus();
       document.execCommand("insertText", false, replyText);
-      await sleep(800);
+      await sleep(600);
 
-      // Find the blue "Reply" submit button that appeared INSIDE the reply box.
-      // It's a different button from the trigger — it only exists after the box opens.
-      // Walk up from the editor to find it.
+      // Find the Reply submit button — walk up from editor,
+      // find a "Reply" button that is NOT the original trigger
       let submitBtn = null;
       let parent = editor.parentElement;
       for (let i = 0; i < 10; i++) {
         if (!parent) break;
-        const candidates = [...parent.querySelectorAll("button")].filter(b => {
-          return b !== replyBtn &&              // not the original trigger
-                 b.offsetParent !== null &&     // visible
-                 !b.disabled &&                 // enabled (has text in it)
-                 b.innerText.trim().toLowerCase() === "reply";
-        });
-        if (candidates.length > 0) {
-          submitBtn = candidates[0];
-          break;
-        }
+        const candidates = [...parent.querySelectorAll("button")].filter(b =>
+          b !== replyBtn &&
+          b.offsetParent !== null &&
+          !b.disabled &&
+          b.innerText.trim().toLowerCase() === "reply"
+        );
+        if (candidates.length > 0) { submitBtn = candidates[0]; break; }
         parent = parent.parentElement;
       }
 
       if (submitBtn) {
         submitBtn.click();
       } else {
-        // Fallback: Ctrl+Enter
         editor.dispatchEvent(new KeyboardEvent("keydown", {
           key: "Enter", keyCode: 13, ctrlKey: true, bubbles: true
         }));
@@ -104,6 +116,6 @@ function replyToAllComments(replyText) {
       await sleep(randomDelay());
     }
 
-    resolve(`Done! Replied to ${count} comment(s).`);
+    resolve(`Done! Replied to ${count} top-level comment(s).`);
   });
 }
